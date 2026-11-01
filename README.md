@@ -1,7 +1,7 @@
 # Tarea2_SO
 # Torneo de Komikan Concurrente — Tarea 2 SO
 
-Integrantes: Nombre 1 (rol), Nombre 2 (rol)
+Integrantes: Valentina Mella,Paulette Saavedra
 
 ## Compilación
 ```
