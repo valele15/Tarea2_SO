@@ -1,5 +1,4 @@
 #define _POSIX_C_SOURCE 200809L
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,7 +10,6 @@
 #include <limits.h>
 #include <ctype.h>
 #include <unistd.h>
-
 #define PERROS 12
 #define FICHAS 13
 #define CASILLAS 28
@@ -28,10 +26,8 @@ typedef struct Partida Partida;
 struct Partida {
     int numero;
     int jugadores[2];
-
     int tablero[CASILLAS];
     int posicion[FICHAS];
-
     int capturas, movimientos;
     int ganador, terminada, lista, abandono;
 
@@ -72,7 +68,6 @@ static Partida **partidas;
 static Cliente *clientes;
 static Config config;
 
-// Captura de Ctrl+C para apagado limpio sin dejar recursos huérfanos
 static void senal(int sig) {
     (void)sig;
     detener = 1;
@@ -82,15 +77,12 @@ static void dormir_ms(int ms) {
     struct timespec t;
     t.tv_sec = ms / 1000;
     t.tv_nsec = (long)(ms % 1000) * 1000000L;
-
     while (nanosleep(&t, &t) == -1 && errno == EINTR && !detener) {
-    }
-}
+    }}
 
 static int azar(unsigned int *semilla, int min, int max) {
     if (max <= min) return min;
-    return min + (int)(rand_r(semilla) % (unsigned int)(max - min + 1));
-}
+    return min + (int)(rand_r(semilla) % (unsigned int)(max - min + 1));}
 
 static void config_inicial(Config *c) {
     c->min_ms = 50;
@@ -99,8 +91,7 @@ static void config_inicial(Config *c) {
     c->puma = 12;
 
     for (int i = 0; i < PERROS; i++)
-        c->perros[i] = i;
-}
+        c->perros[i] = i;}
 
 static char *recortar(char *t) {
     while (*t && isspace((unsigned char)*t)) t++;
@@ -116,7 +107,7 @@ static int leer_config(const char *ruta, Config *c) {
     char linea[512], clave[80], valor[400];
 
     while (fgets(linea, sizeof(linea), f)) {
-        if (linea[0] == '#' ||
+    if (linea[0] == '#' ||
             sscanf(linea, " %79[^=]=%399[^\n]", clave, valor) != 2)
             continue;
 
@@ -172,7 +163,6 @@ static int leer_config(const char *ruta, Config *c) {
     return 0;
 }
 
-// Coordenadas para evaluar rectas y alineación en el tablero
 static void coordenadas(int casilla, int *fila, int *col) {
     if (casilla < 25) {
         *fila = casilla / 5 + 2;
@@ -189,7 +179,6 @@ static void coordenadas(int casilla, int *fila, int *col) {
     }
 }
 
-// Revisa si existe adyacencia directa entre dos casillas
 static int vecino(int a, int b) {
     if (a < 0 || b < 0 || a >= CASILLAS || b >= CASILLAS || a == b)
         return 0;
@@ -217,14 +206,11 @@ static int vecino(int a, int b) {
     return 0;
 }
 
-// Valida si un salto del Puma sobre un perro es recto
 static int captura_valida(Partida *p, int origen, int medio, int destino) {
     if (origen == medio || medio == destino || origen == destino)
         return 0;
-
     if (!vecino(origen, medio) || !vecino(medio, destino))
         return 0;
-
     if (p->tablero[medio] <= 0 || p->tablero[destino] != 0)
         return 0;
 
@@ -233,21 +219,18 @@ static int captura_valida(Partida *p, int origen, int medio, int destino) {
     coordenadas(medio, &f2, &c2);
     coordenadas(destino, &f3, &c3);
 
-    // La linea vertical central 7 - 2 - T es recta aunque la arista 2-T sea mas larga
+
     if (medio == 2 && ((origen == 7 && destino == 27) ||
                        (origen == 27 && destino == 7)))
         return 1;
-
-    return (f2 - f1 == f3 - f2) && (c2 - c1 == c3 - c2);
-}
+        return (f2 - f1 == f3 - f2) && (c2 - c1 == c3 - c2);}
 
 static int puma_tiene_movimientos(Partida *p) {
     int origen = p->posicion[0];
 
     for (int i = 0; i < CASILLAS; i++) {
         if (p->tablero[i] == 0 && vecino(origen, i))
-            return 1;
-    }
+            return 1;}
 
     for (int medio = 0; medio < CASILLAS; medio++) {
         for (int destino = 0; destino < CASILLAS; destino++) {
@@ -318,7 +301,6 @@ static void mover(Partida *p, int ficha, unsigned int *semilla) {
     int elegido = azar(semilla, 0, opciones - 1);
     int destino = destinos[elegido];
     int salto = saltos[elegido];
-
     p->tablero[origen] = 0;
     p->tablero[destino] = (ficha == 0) ? -1 : ficha;
     p->posicion[ficha] = destino;
@@ -327,8 +309,7 @@ static void mover(Partida *p, int ficha, unsigned int *semilla) {
         int perro = p->tablero[salto];
         p->posicion[perro] = -1;
         p->tablero[salto] = 0;
-        p->capturas++;
-    }
+        p->capturas++;}
 
     p->movimientos++;
 
@@ -449,8 +430,7 @@ static void *ejecutar_juez(void *arg) {
             pthread_mutex_unlock(&p->mutex);
             break;
         }
-
-        creadas++;
+  creadas++;
     }
 
     pthread_mutex_lock(&p->mutex);
@@ -477,11 +457,9 @@ static void *ejecutar_juez(void *arg) {
 
     p->terminada = 1;
     pthread_mutex_unlock(&p->mutex);
-
-    for (int i = 0; i < creadas; i++)
+ for (int i = 0; i < creadas; i++)
         pthread_join(p->piezas[i], NULL);
-
-    pthread_mutex_lock(&imprimir_mutex);
+  pthread_mutex_lock(&imprimir_mutex);
 
     if (p->abandono)
         printf("\nMesa %d: gano %s por abandono\n",
@@ -491,10 +469,8 @@ static void *ejecutar_juez(void *arg) {
                p->numero, p->ganador == 1 ? "Puma" : "Perros");
     else
         printf("\nMesa %d: partida interrumpida\n", p->numero);
-
-    pthread_mutex_unlock(&imprimir_mutex);
-
-    sem_post(&mesas_libres);
+ pthread_mutex_unlock(&imprimir_mutex);
+sem_post(&mesas_libres);
 
 terminar:
     pthread_mutex_lock(&p->mutex);
@@ -660,8 +636,7 @@ int main(int argc, char **argv) {
             detener = 1;
             break;
         }
-
-        creados++;
+  creados++;
     }
 
     for (int i = 0; i < creados; i++)
@@ -670,8 +645,7 @@ int main(int argc, char **argv) {
     for (int i = 0; i < numero_partidas; i++) {
         pthread_cond_destroy(&partidas[i]->cambio);
         pthread_mutex_destroy(&partidas[i]->mutex);
-        free(partidas[i]);
-    }
+        free(partidas[i]);}
 
     free(partidas);
     free(clientes);
@@ -683,6 +657,5 @@ int main(int argc, char **argv) {
     pthread_mutex_destroy(&imprimir_mutex);
 
     printf("\nTorneo finalizado\n");
-    return 0;
-}
+    return 0;}
 
