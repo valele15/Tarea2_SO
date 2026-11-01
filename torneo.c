@@ -1,19 +1,4 @@
 #define _POSIX_C_SOURCE 200809L
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <pthread.h>
-#include <semaphore.h>
-#include <signal.h>
-#include <unistd.h>
-#include <time.h>
-#include <errno.h>
-
-#define MAX_CASILLAS 28
-#define NUM_PERROS 12
-#define NUM_FICHAS 13 // 1 Puma + 12 Perros
-
-#define _POSIX_C_SOURCE 200809L
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,6 +9,7 @@
 #include <time.h>
 #include <errno.h>
 #include <limits.h>
+#include <ctype.h>
 #include <unistd.h>
 
 #define PERROS 12
@@ -79,6 +65,9 @@ static sem_t mesas_libres;
 
 static int esperando = -1;
 static int numero_partidas = 0;
+static int llegados = 0;
+static int total_clientes = 0;
+static Partida **partidas;
 
 static Cliente *clientes;
 static Config config;
@@ -87,7 +76,6 @@ static Config config;
 static void senal(int sig) {
     (void)sig;
     detener = 1;
-    pthread_cond_broadcast(&emparejar_cond);
 }
 
 static void dormir_ms(int ms) {
@@ -114,6 +102,13 @@ static void config_inicial(Config *c) {
         c->perros[i] = i;
 }
 
+static char *recortar(char *t) {
+    while (*t && isspace((unsigned char)*t)) t++;
+    size_t n = strlen(t);
+    while (n > 0 && isspace((unsigned char)t[n - 1])) t[--n] = '\0';
+    return t;
+}
+
 static int leer_config(const char *ruta, Config *c) {
     FILE *f = fopen(ruta, "r");
     if (!f) return -1;
@@ -121,8 +116,14 @@ static int leer_config(const char *ruta, Config *c) {
     char linea[512], clave[80], valor[400];
 
     while (fgets(linea, sizeof(linea), f)) {
-        if (sscanf(linea, " %79[^=]=%399s", clave, valor) != 2)
+        if (linea[0] == '#' ||
+            sscanf(linea, " %79[^=]=%399[^\n]", clave, valor) != 2)
             continue;
+
+        char *k = recortar(clave);
+        char *v = recortar(valor);
+        memmove(clave, k, strlen(k) + 1);
+        memmove(valor, v, strlen(v) + 1);
 
         if (strcmp(clave, "min_ms") == 0)
             c->min_ms = atoi(valor);
@@ -148,7 +149,8 @@ static int leer_config(const char *ruta, Config *c) {
                 fclose(f);
                 return -1;
             }
-        }
+        } else
+            fprintf(stderr, "Aviso: clave desconocida en config: '%s'\n", clave);
     }
 
     fclose(f);
@@ -199,9 +201,10 @@ static int vecino(int a, int b) {
     }
 
     int lineas[][2] = {
-        {25, 0}, {25, 1}, {25, 2},
-        {26, 2}, {26, 3}, {26, 4},
-        {25, 26}, {25, 27}, {26, 27}
+        {25, 0}, {25, 1},
+        {26, 3}, {26, 4},
+        {25, 26}, {25, 27}, {26, 27},
+        {27, 2}
     };
 
     int total = (int)(sizeof(lineas) / sizeof(lineas[0]));
@@ -229,6 +232,11 @@ static int captura_valida(Partida *p, int origen, int medio, int destino) {
     coordenadas(origen, &f1, &c1);
     coordenadas(medio, &f2, &c2);
     coordenadas(destino, &f3, &c3);
+
+    // La linea vertical central 7 - 2 - T es recta aunque la arista 2-T sea mas larga
+    if (medio == 2 && ((origen == 7 && destino == 27) ||
+                       (origen == 27 && destino == 7)))
+        return 1;
 
     return (f2 - f1 == f3 - f2) && (c2 - c1 == c3 - c2);
 }
@@ -502,6 +510,10 @@ static void *ejecutar_cliente(void *arg) {
 
     pthread_mutex_lock(&emparejar_mutex);
 
+    llegados++;
+    if (llegados == total_clientes)
+        pthread_cond_broadcast(&emparejar_cond);
+
     if (detener) {
         pthread_mutex_unlock(&emparejar_mutex);
         return NULL;
@@ -510,7 +522,7 @@ static void *ejecutar_cliente(void *arg) {
     if (esperando == -1) {
         esperando = c->id;
 
-        while (!detener && c->partida == NULL) {
+        while (!detener && c->partida == NULL && llegados < total_clientes) {
             struct timespec t;
             clock_gettime(CLOCK_REALTIME, &t);
 
@@ -528,7 +540,14 @@ static void *ejecutar_cliente(void *arg) {
         Partida *p = c->partida;
         pthread_mutex_unlock(&emparejar_mutex);
 
-        if (!p) return NULL;
+        if (!p) {
+            if (!detener) {
+                pthread_mutex_lock(&imprimir_mutex);
+                printf("\nJugador %d sin rival: no quedan mas jugadores\n", c->id);
+                pthread_mutex_unlock(&imprimir_mutex);
+            }
+            return NULL;
+        }
 
         pthread_mutex_lock(&p->mutex);
         while (!p->lista)
@@ -550,6 +569,7 @@ static void *ejecutar_cliente(void *arg) {
     }
 
     p->numero = ++numero_partidas;
+    partidas[p->numero - 1] = p;
     p->jugadores[0] = primero;
     p->jugadores[1] = c->id;
     p->config = config;
@@ -596,8 +616,8 @@ int main(int argc, char **argv) {
     long m = strtol(argv[2], &fin2, 10);
 
     if (!*argv[1] || *fin1 || !*argv[2] || *fin2 ||
-        n < 2 || n % 2 || n > 2000 || m < 1 || m > 2000) {
-        fprintf(stderr, "N debe ser par (2 a 2000) y M entre 1 y 2000\n");
+        n < 1 || n > 2000 || m < 1 || m > 2000) {
+        fprintf(stderr, "N debe estar entre 1 y 2000 y M entre 1 y 2000\n");
         return 1;
     }
 
@@ -618,12 +638,15 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    total_clientes = (int)n;
     clientes = calloc((size_t)n, sizeof(*clientes));
     pthread_t *hilos = calloc((size_t)n, sizeof(*hilos));
+    partidas = calloc((size_t)(n / 2 + 1), sizeof(*partidas));
 
-    if (!clientes || !hilos) {
+    if (!clientes || !hilos || !partidas) {
         free(clientes);
         free(hilos);
+        free(partidas);
         sem_destroy(&mesas_libres);
         return 1;
     }
@@ -644,16 +667,13 @@ int main(int argc, char **argv) {
     for (int i = 0; i < creados; i++)
         pthread_join(hilos[i], NULL);
 
-    for (int i = 0; i < creados; i++) {
-        Partida *p = clientes[i].partida;
-
-        if (p && p->jugadores[1] == clientes[i].id) {
-            pthread_cond_destroy(&p->cambio);
-            pthread_mutex_destroy(&p->mutex);
-            free(p);
-        }
+    for (int i = 0; i < numero_partidas; i++) {
+        pthread_cond_destroy(&partidas[i]->cambio);
+        pthread_mutex_destroy(&partidas[i]->mutex);
+        free(partidas[i]);
     }
 
+    free(partidas);
     free(clientes);
     free(hilos);
 
@@ -665,6 +685,4 @@ int main(int argc, char **argv) {
     printf("\nTorneo finalizado\n");
     return 0;
 }
-
-
 
