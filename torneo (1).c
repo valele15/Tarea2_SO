@@ -223,7 +223,8 @@ static int captura_valida(Partida *p, int origen, int medio, int destino) {
     if (medio == 2 && ((origen == 7 && destino == 27) ||
                        (origen == 27 && destino == 7)))
         return 1;
-        return (f2 - f1 == f3 - f2) && (c2 - c1 == c3 - c2);}
+        }
+        return (f2 - f1 == f3 - f2) && (c2 - c1 == c3 - c2);
 
 static int puma_tiene_movimientos(Partida *p) {
     int origen = p->posicion[0];
